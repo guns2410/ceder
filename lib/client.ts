@@ -1,115 +1,51 @@
 import * as net from 'net'
-import { PassThrough } from 'stream'
+import { ClientPassThrough } from './ClientPassthrough'
+import assert = require('node:assert')
 
 type ClientConnectionOptions = {
-  port: number
-  hostname?: string
   timeout?: number
 }
 
-type TransactionParams = {
-  token?: string
-  timeout?: number
-}
+export class Client {
+  private readonly hostname: string
+  private readonly port: number
 
-type TransactionRequest = {
-  transactionName: string
-  data: unknown
-  params: TransactionParams
-}
+  constructor(private readonly serverAddress: string, private readonly options: ClientConnectionOptions) {
+    this.serverAddress = serverAddress
+    if (serverAddress.startsWith('http')) {
+      throw new Error('Server address must be a TCP address')
+    }
 
-interface ClientResponse extends PassThrough {
-  json: <T>() => Promise<T>
-  text: () => Promise<string>
-}
+    if (!serverAddress.includes(':')) {
+      throw new Error('Server address must include a port')
+    }
 
-export abstract class Client {
-  private static isConnectionOpen: boolean = false
-
-  private static async connect(options: ClientConnectionOptions): Promise<net.Socket> {
-    return new Promise((resolve, reject) => {
-      try {
-        const socket = net.createConnection({
-          port: options.port,
-          host: options.hostname || 'localhost',
-          timeout: options.timeout || 10000,
-        }, () => {
-          resolve(socket)
-        })
-      } catch (err) {
-        reject(err)
-      }
-    })
+    const [hostname, port] = serverAddress.split(':')
+    assert(port, 'serverAddress must include a port. e.g. localhost:1337 or :1337')
+    this.hostname = hostname || '0.0.0.0'
+    this.port = +port
   }
 
   private static getTransactionId(): string {
-    const transactionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
-    return transactionId
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
   }
 
-  static async send<T = unknown>(connectionOptions: ClientConnectionOptions, data: TransactionRequest): Promise<ClientResponse> {
+  async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<ClientPassThrough> {
     const transactionId = Client.getTransactionId()
     const socket = new net.Socket()
-    socket.connect(connectionOptions.port, connectionOptions.hostname || 'localhost', () => {
-      socket.write(JSON.stringify({
-        transactionId,
-        transactionName: data.transactionName,
-        data: data.data,
-        params: data.params,
-      }))
+    socket.setTimeout(this.options.timeout || 10000)
 
-      socket.on('error', (err) => {
-        throw err
-      })
+    socket.connect(this.port, this.hostname, () => {
+      socket.write(JSON.stringify({ transactionId, handlerName, data, params }))
     })
 
-    const passThrough = new PassThrough() as ClientResponse
+    socket.on('error', (err) => {
+      throw err
+    })
+
+    const passThrough = new ClientPassThrough({ objectMode: true, readableObjectMode: true, writableObjectMode: true })
     socket.pipe(passThrough)
-
-    passThrough.json = async () => {
-      return new Promise((res, rej) => {
-        let data = ''
-        passThrough.on('data', (chunk) => {
-          data += chunk
-        })
-        passThrough.on('end', () => {
-          try {
-          const incomingData = JSON.parse(data)
-            if (incomingData) {
-              if (incomingData.isError) {
-                const err = new Error((incomingData.message || 'Unknown error'))
-                Object.assign(err, incomingData)
-                rej(err)
-              } else {
-                res(incomingData)
-              }
-            }
-          } catch (err) {
-            rej(err)
-          }
-        })
-        passThrough.on('error', (err) => {
-          rej(err)
-        })
-      })
-    }
-
-    passThrough.text = async () => {
-      return new Promise((res, rej) => {
-        let data = ''
-        passThrough.on('data', (chunk) => {
-          data += chunk
-        })
-        passThrough.on('end', () => {
-          res(data)
-        })
-        passThrough.on('error', (err) => {
-          rej(err)
-        })
-      })
-    }
 
     return passThrough
   }
-
 }

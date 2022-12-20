@@ -16,11 +16,11 @@ export class Server extends EventEmitter {
         } else {
           try {
             const request = JSON.parse(data.toString())
-            if (!request.transactionName) {
+            if (!request.handlerName) {
               socket.end('Invalid request')
             } else {
 
-              this.emit(request.transactionName, {
+              this.emit(request.handlerName, {
                 transactionId: request.transactionId,
                 data: request.data,
                 params: request.params,
@@ -48,23 +48,27 @@ export class Server extends EventEmitter {
               })
             }
           } catch (err) {
+            console.error(err)
             socket.emit('error', err)
           }
         }
       })
 
       socket.on('error', (err) => {
+        console.error(err)
         socket.destroy(err)
       })
 
     })
   }
 
-  handle(transactionName: string, handler: (data: any, params: any, socket: net.Socket) => any) {
-    this.on(transactionName, async (incomingData: any) => {
+  handle<Data, Params>(handlerName: string, handler: (data: Data, params: Params, socket: net.Socket) => any) {
+    this.on(handlerName, async (incomingData: any) => {
       try {
         const data = await handler(incomingData.data, incomingData.params, incomingData.socket)
-        if (data) incomingData.done(Buffer.from(JSON.stringify(data)))
+        if (data) {
+          incomingData.done(Buffer.from(JSON.stringify(data)))
+        }
       } catch (err) {
         incomingData.error(err)
       }
