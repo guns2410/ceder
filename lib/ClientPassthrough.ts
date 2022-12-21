@@ -43,7 +43,7 @@ export class ClientPassThrough extends PassThrough {
     })
   }
 
-  streamWithMetadata(): Promise<{ metadata: Record<string, any>, stream: PassThrough }> {
+  streamWithMetadata<T = Record<string, any>>(): Promise<{ metadata: T, stream: PassThrough }> {
     return new Promise((resolve, reject) => {
       const returnValue = {
         metadata: {},
