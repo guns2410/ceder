@@ -2,6 +2,7 @@ import { PassThrough, TransformOptions } from 'node:stream'
 
 interface PassThroughOptions extends TransformOptions {
   objectMode?: boolean;
+  log?: boolean;
 }
 
 export class ClientPassThrough extends PassThrough {
@@ -28,11 +29,43 @@ export class ClientPassThrough extends PassThrough {
   text(): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = []
-      this.on('data', (chunk) => chunks.push(chunk))
+      this.on('data', (chunk) => {
+        chunks.push(chunk)
+      })
       this.on('end', () => {
         try {
           const text = Buffer.concat(chunks).toString()
           resolve(text)
+        } catch (err) {
+          reject(err)
+        }
+      })
+    })
+  }
+
+  streamWithMetadata(): Promise<{ metadata: Record<string, any>, stream: PassThrough }> {
+    return new Promise((resolve, reject) => {
+      const returnValue = {
+        metadata: {},
+        stream: new ClientPassThrough(),
+      }
+      const chunks: Buffer[] = []
+      let isMetadataParsed = false
+      this.on('data', (chunk: Buffer) => {
+        if (!isMetadataParsed) {
+          chunks.push(chunk)
+          if (chunk.toString().endsWith('\r\n\r\n')) {
+            returnValue.metadata = JSON.parse(Buffer.concat(chunks).toString().replace(/\r\r\n\n$/, ''))
+            isMetadataParsed = true
+          }
+        } else {
+          returnValue.stream.write(chunk)
+        }
+      })
+      this.on('end', () => {
+        try {
+          returnValue.stream.end()
+          resolve(returnValue)
         } catch (err) {
           reject(err)
         }

@@ -4,6 +4,7 @@ import assert = require('node:assert')
 
 type ClientConnectionOptions = {
   timeout?: number
+  log?: boolean
 }
 
 export class Client {
@@ -32,19 +33,26 @@ export class Client {
 
   async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<ClientPassThrough> {
     const transactionId = Client.getTransactionId()
-    const socket = new net.Socket()
-    socket.setTimeout(this.options.timeout || 10000)
-
-    socket.connect(this.port, this.hostname, () => {
+    const passThrough = new ClientPassThrough({ log: this.options.log })
+    const socket = net.createConnection({
+      port: this.port,
+      host: this.hostname,
+      timeout: this.options.timeout,
+    }, () => {
+      if (this.options.log) {
+        console.info(`Connected to ${this.serverAddress}. Sending request for ${handlerName}`)
+      }
       socket.write(JSON.stringify({ transactionId, handlerName, data, params }))
-    })
 
-    socket.on('error', (err) => {
-      throw err
-    })
+      socket.on('error', (err) => {
+        if (this.options.log) {
+          console.error(err)
+        }
+        throw err
+      })
 
-    const passThrough = new ClientPassThrough({ objectMode: true, readableObjectMode: true, writableObjectMode: true })
-    socket.pipe(passThrough)
+      socket.pipe(passThrough)
+    })
 
     return passThrough
   }

@@ -1,6 +1,11 @@
 import * as net from 'node:net'
 import * as EventEmitter from 'node:events'
 import * as assert from 'node:assert'
+import { pipeline } from 'node:stream/promises'
+
+type HandlerOptions = {
+  returnMode?: 'stream' | 'buffer'
+}
 
 export class Server extends EventEmitter {
   private server: net.Server
@@ -25,7 +30,7 @@ export class Server extends EventEmitter {
                 data: request.data,
                 params: request.params,
                 socket,
-                pipe: (data: any) => socket.pipe(data),
+                pipe: (data: any) => pipeline(data, socket),
                 done: (data: any) => {
                   if (data) {
                     socket.end(data)
@@ -38,12 +43,12 @@ export class Server extends EventEmitter {
                   socket.write(data)
                 },
                 error: (err: any) => {
-                  socket.end({
+                  socket.end(Buffer.from(JSON.stringify({
                     transactionId: request.transactionId,
                     isError: true,
                     message: err.message,
                     stack: err.stack, ...err,
-                  })
+                  })))
                 },
               })
             }
@@ -62,12 +67,20 @@ export class Server extends EventEmitter {
     })
   }
 
-  handle<Data, Params>(handlerName: string, handler: (data: Data, params: Params, socket: net.Socket) => any) {
+  handle<Data, Params>(handlerName: string, options: HandlerOptions = {}, handler: (data: Data, params: Params, socket: net.Socket) => any) {
     this.on(handlerName, async (incomingData: any) => {
       try {
         const data = await handler(incomingData.data, incomingData.params, incomingData.socket)
         if (data) {
-          incomingData.done(Buffer.from(JSON.stringify(data)))
+          if (data.metadata) {
+            incomingData.send(Buffer.from(JSON.stringify(data.metadata)))
+            incomingData.send('\r\n\r\n')
+          }
+          if (options.returnMode === 'stream') {
+            await incomingData.pipe(data.data || data)
+          } else {
+            incomingData.done(Buffer.from(JSON.stringify(data.data || data)))
+          }
         }
       } catch (err) {
         incomingData.error(err)
