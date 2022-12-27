@@ -1,20 +1,16 @@
 import * as net from 'net'
-import { ClientPassThrough } from './ClientPassthrough'
+import { ClientConnectionOptions } from './types'
+import { Socket } from './Socket'
 import assert = require('node:assert')
 
-type ClientConnectionOptions = {
-  timeout?: number
-  log?: boolean
-}
-
 export class Client {
-  private readonly hostname: string
-  private readonly port: number
+  protected readonly hostname: string
+  protected readonly port: number
 
-  constructor(private readonly serverAddress: string, private readonly options: ClientConnectionOptions) {
+  constructor(protected readonly serverAddress: string, protected readonly options: ClientConnectionOptions) {
     this.serverAddress = serverAddress
     if (serverAddress.startsWith('http')) {
-      throw new Error('Server address must be a TCP address')
+      throw new Error('Server address must be a address. e.g. localhost:4867 or :4867')
     }
 
     if (!serverAddress.includes(':')) {
@@ -22,38 +18,45 @@ export class Client {
     }
 
     const [hostname, port] = serverAddress.split(':')
-    assert(port, 'serverAddress must include a port. e.g. localhost:1337 or :1337')
+    assert(port, 'serverAddress must include a port. e.g. localhost:4867 or :4867')
     this.hostname = hostname || '0.0.0.0'
     this.port = +port
   }
 
-  private static getTransactionId(): string {
-    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+  async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<Record<string, any>> {
+    const transactionId = this.getTransactionId()
+    return new Promise((resolve, reject) => {
+      const sock = net.createConnection({
+        port: this.port,
+        host: this.hostname,
+        timeout: this.options.timeout,
+        noDelay: true,
+      }, () => {
+        if (this.options.log) {
+          console.info(`Connected to ${this.serverAddress}. Sending request for ${handlerName}`)
+        }
+        const socket = new Socket(sock, false)
+        socket.sendTransaction({ transactionId, data, handlerName, params })
+        socket.once('timeout', () => {
+          reject(new Error('Socket timeout'))
+          socket.rawSocket.destroy()
+        })
+
+        const response = {} as Record<string, any>
+
+        socket.on('data', (d) => {
+          response[d.key] = d.data
+        })
+
+        socket.on('end', () => {
+          resolve(response)
+        })
+
+      })
+    })
   }
 
-  async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<ClientPassThrough> {
-    const transactionId = Client.getTransactionId()
-    const passThrough = new ClientPassThrough({ log: this.options.log })
-    const socket = net.createConnection({
-      port: this.port,
-      host: this.hostname,
-      timeout: this.options.timeout,
-    }, () => {
-      if (this.options.log) {
-        console.info(`Connected to ${this.serverAddress}. Sending request for ${handlerName}`)
-      }
-      socket.write(JSON.stringify({ transactionId, handlerName, data, params }))
-
-      socket.on('error', (err) => {
-        if (this.options.log) {
-          console.error(err)
-        }
-        throw err
-      })
-
-      socket.pipe(passThrough)
-    })
-
-    return passThrough
+  protected getTransactionId(): string {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
   }
 }

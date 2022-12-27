@@ -1,9 +1,5 @@
-import { PassThrough, TransformOptions } from 'node:stream'
-
-interface PassThroughOptions extends TransformOptions {
-  objectMode?: boolean;
-  log?: boolean;
-}
+import { PassThrough } from 'node:stream'
+import { PassThroughOptions } from './types'
 
 export class ClientPassThrough extends PassThrough {
 
@@ -37,16 +33,17 @@ export class ClientPassThrough extends PassThrough {
           const text = Buffer.concat(chunks).toString()
           resolve(text)
         } catch (err) {
+          console.error(err)
           reject(err)
         }
       })
     })
   }
 
-  streamWithMetadata<T = Record<string, any>>(): Promise<{ metadata: T, stream: PassThrough }> {
+  async streamWithMetadata<T = Record<string, any>>(): Promise<{ metadata: T, stream: ClientPassThrough }> {
     return new Promise((resolve, reject) => {
       const returnValue = {
-        metadata: {},
+        metadata: {} as T,
         stream: new ClientPassThrough(),
       }
       const chunks: Buffer[] = []

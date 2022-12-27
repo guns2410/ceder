@@ -1,10 +1,12 @@
 {
   "compilerOptions": {
-    "target": "es5",
+    "target": "ESNext",
     "module": "commonjs",
     "declaration": true,
     "outDir": "./dist",
     "strict": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "allowJs": true
   }
 }
+

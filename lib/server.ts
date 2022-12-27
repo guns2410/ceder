@@ -1,89 +1,49 @@
 import * as net from 'node:net'
 import * as EventEmitter from 'node:events'
-import * as assert from 'node:assert'
-import { pipeline } from 'node:stream/promises'
-
-type HandlerOptions = {
-  returnMode?: 'stream' | 'buffer'
-}
+import { DefaultServerHandlerOptions, SocketRequestData } from './types'
+import { Socket } from './Socket'
 
 export class Server extends EventEmitter {
   private server: net.Server
 
   constructor() {
     super()
-    this.server = net.createServer()
-    this.server.on('connection', (socket) => {
-      socket.on('data', (data) => {
-        const incomingData = data.toString()
-        if (incomingData === 'ping') {
-          socket.end('pong')
-        } else {
-          try {
-            const request = JSON.parse(data.toString())
-            if (!request.handlerName) {
-              socket.end('Invalid request')
-            } else {
-
-              this.emit(request.handlerName, {
-                transactionId: request.transactionId,
-                data: request.data,
-                params: request.params,
-                socket,
-                pipe: (data: any) => pipeline(data, socket),
-                done: (data: any) => {
-                  if (data) {
-                    socket.end(data)
-                  } else {
-                    socket.end()
-                  }
-                },
-                send: (data: any) => {
-                  assert(data, 'Cannot send empty data')
-                  socket.write(data)
-                },
-                error: (err: any) => {
-                  socket.end(Buffer.from(JSON.stringify({
-                    transactionId: request.transactionId,
-                    isError: true,
-                    message: err.message,
-                    stack: err.stack, ...err,
-                  })))
-                },
-              })
-            }
-          } catch (err) {
-            console.error(err)
-            socket.emit('error', err)
-          }
-        }
+    this.server = net.createServer({
+      keepAlive: true,
+      noDelay: true,
+    })
+    this.server.on('connection', (_sock) => {
+      const socket = new Socket(_sock, true)
+      socket.on('request', (request: SocketRequestData) => {
+        this.emit(request.handlerName, request)
       })
-
-      socket.on('error', (err) => {
-        console.error(err)
-        socket.destroy(err)
+      socket.on('timeout', () => {
+        socket.rawSocket.destroy(new Error('Socket timeout'))
       })
-
     })
   }
 
-  handle<Data, Params>(handlerName: string, options: HandlerOptions = {}, handler: (data: Data, params: Params, socket: net.Socket) => any) {
-    this.on(handlerName, async (incomingData: any) => {
+  handle<T extends DefaultServerHandlerOptions>(handlerName: string, handler: (req: T, res: Socket) => Promise<any>) {
+    this.on(handlerName, async ({ socket, ...requestData }) => {
       try {
-        const data = await handler(incomingData.data, incomingData.params, incomingData.socket)
+        const data = await handler(requestData, socket)
         if (data) {
-          if (data.metadata) {
-            incomingData.send(Buffer.from(JSON.stringify(data.metadata)))
-            incomingData.send('\r\n\r\n')
-          }
-          if (options.returnMode === 'stream') {
-            await incomingData.pipe(data.data || data)
+          if (data.constructor.name === 'Object') {
+            for await  (const [key, value] of Object.entries(data)) {
+              await socket.send(key, value)
+            }
           } else {
-            incomingData.done(Buffer.from(JSON.stringify(data.data || data)))
+            await socket.send('data', data)
           }
         }
-      } catch (err) {
-        incomingData.error(err)
+
+        process.nextTick(() => {
+          socket.done()
+        })
+      } catch (err: any) {
+        console.error(err)
+        await socket.send({ isError: true, stack: err.stack, ...err })
+        await socket.done()
       }
     })
   }
