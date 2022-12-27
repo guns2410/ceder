@@ -1,6 +1,6 @@
 export { Server } from './server'
 export { Client } from './client'
 export { ClientPassThrough } from './ClientPassthrough'
-export { Socket } from './socket'
+export { Socket } from './Socket'
 // export { UDPClient } from './UDPClient'
 // export { UDPServer } from './UDPServer'
