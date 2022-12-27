@@ -1,5 +1,5 @@
 {
-  "name": "tcp-api",
+  "name": "vanoy",
   "version": "0.1.2",
   "description": "A simple API client and server build on top of TCP",
   "main": "dist/index.js",
