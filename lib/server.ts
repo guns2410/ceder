@@ -20,6 +20,10 @@ export class Server extends EventEmitter {
       socket.on('timeout', () => {
         socket.rawSocket.destroy(new Error('Socket timeout'))
       })
+
+      socket.on('error', (err) => {
+        console.error(err)
+      })
     })
   }
 

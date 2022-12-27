@@ -2,6 +2,7 @@ import * as net from 'net'
 import { SocketParsedData, SocketRequestData } from './types'
 import { PassThrough } from 'node:stream'
 import { EventEmitter } from 'events'
+import { Readable } from 'stream'
 
 export class Socket extends EventEmitter {
   private bufferedByes: number = 0
@@ -72,6 +73,7 @@ export class Socket extends EventEmitter {
   private onError(err: Error) {
     console.error(err)
     this.socket.destroy(err)
+    this.emit('error', err)
   }
 
   private onData(data: Buffer | string | any) {
@@ -179,7 +181,7 @@ export class Socket extends EventEmitter {
 
   private readForKey(key: string) {
     const endState = `__end_${key}`
-    const result = this.unparsedData.data || new PassThrough()
+    const result = this.unparsedData.data || new PassThrough({ highWaterMark: 0 })
     let found = false
     let buffer: Buffer | undefined
     while (buffer = this.queue.shift()) {
@@ -190,7 +192,7 @@ export class Socket extends EventEmitter {
         this.unparsedData.isBodyParsed = true
 
         const index = buffer.indexOf(endState)
-        result.write(buffer.subarray(0, index))
+        result.end(buffer.subarray(0, index))
         this.queue.unshift(buffer.subarray(index + endState.length))
         break
       } else {
@@ -270,8 +272,11 @@ export class Socket extends EventEmitter {
     this.socket.write(key)
     this.socket.write(dataLength)
     if (this.isStream(dataToSend)) {
-      const passThrough = new PassThrough()
-      dataToSend.pipe(passThrough)
+      const passThrough = new Readable({
+        highWaterMark: 128, read() {
+        },
+      })
+      passThrough.wrap(dataToSend)
       await new Promise((resolve, reject) => {
         passThrough
           .on('data', (chunk: any) => {

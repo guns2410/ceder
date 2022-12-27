@@ -52,6 +52,10 @@ export class Client {
           resolve(response)
         })
 
+        socket.on('error', (err) => {
+          reject(err)
+        })
+
       })
     })
   }
