@@ -1,7 +1,25 @@
 {
-  "name": "vanoy",
-  "version": "0.1.2",
+  "name": "ceder",
+  "version": "0.1.3",
+  "bugs": {
+    "url": "https://github.com/guns2410/ceder/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guns2410/ceder.git"
+  },
+  "license": "MIT",
+  "author": "Gunjan Soni <gunjan.soni2002@gmail.com>",
   "description": "A simple API client and server build on top of TCP",
+  "keywords": [
+    "tcp",
+    "udp",
+    "api",
+    "request",
+    "curl",
+    "wget",
+    "xhr"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -10,8 +28,6 @@
     "prepublish": "npm run build"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
     "@types/node": "^18.11.17",
     "nodemon": "^2.0.20",
