@@ -14,6 +14,7 @@ export class Server extends EventEmitter {
     })
     this.server.on('connection', (_sock) => {
       console.info('Client connected')
+      _sock.setKeepAlive(true)
       const socket = new Socket(_sock, true)
       socket.on('request', (request: SocketRequestData) => {
         this.emit(request.handlerName, request)

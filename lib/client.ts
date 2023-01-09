@@ -1,12 +1,13 @@
 import * as net from 'net'
 import { ClientConnectionOptions } from './types'
 import { Socket } from './Socket'
+import { createPool, Pool } from 'generic-pool'
 import assert = require('node:assert')
 
 export class Client {
   protected readonly hostname: string
   protected readonly port: number
-  private socket: net.Socket | undefined
+  private pool: Pool<Socket>
 
   constructor(protected readonly serverAddress: string, protected readonly options: ClientConnectionOptions) {
     this.serverAddress = serverAddress
@@ -22,9 +23,26 @@ export class Client {
     assert(port, 'serverAddress must include a port. e.g. localhost:4867 or :4867')
     this.hostname = hostname || '0.0.0.0'
     this.port = +port
+
+    this.pool = createPool({
+      create: async () => {
+        return await this.createSocketConnection()
+      },
+      validate: async (client: Socket): Promise<boolean>  => {
+        return client.rawSocket.readable && client.rawSocket.writable
+      },
+      destroy: async (socket: Socket) => {
+        socket.rawSocket.destroy()
+      },
+    }, {
+      ...this.options.pool || {},
+      testOnBorrow: true,
+      testOnReturn: true,
+      autostart: true,
+    })
   }
 
-  connect(): Promise<void> {
+  createSocketConnection(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const sock = net.createConnection({
         port: this.port,
@@ -36,8 +54,9 @@ export class Client {
         if (this.options.log) {
           console.info(`Connected to ${this.serverAddress}`)
         }
-        this.socket = sock
-        resolve()
+        sock.setKeepAlive(true)
+        const socket = new Socket(sock, false)
+        resolve(socket)
       })
 
       sock.on('error', (err) => {
@@ -47,15 +66,10 @@ export class Client {
   }
 
   async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<Record<string, any>> {
+    await this.pool.ready()
     const transactionId = this.getTransactionId()
     return new Promise(async (resolve, reject) => {
-      if (!this.socket?.readable || !this.socket?.writable) {
-        await this.connect()
-      } else {
-        this.socket.resume()
-      }
-
-      const socket = new Socket(this.socket!, false)
+      const socket = await this.pool.acquire()
       socket.sendTransaction({ transactionId, data, handlerName, params })
 
       const response = {} as Record<string, any>
@@ -65,12 +79,15 @@ export class Client {
       })
 
       socket.once('end', () => {
+        socket.removeAllListeners()
+        this.pool.release(socket)
         resolve(response)
       })
 
       socket.once('error', (err) => {
-        if (err.message.includes('ECONNRESET')) {
-          socket.reset()
+        socket.removeAllListeners()
+        this.pool.destroy(socket)
+        if ([ 'ECONNRESET', 'EPIPE' ].includes(err.code)) {
           return this.send(handlerName, data, params)
         }
         reject(err)
