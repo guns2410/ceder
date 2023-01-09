@@ -6,6 +6,7 @@ import assert = require('node:assert')
 export class Client {
   protected readonly hostname: string
   protected readonly port: number
+  private socket: net.Socket | undefined
 
   constructor(protected readonly serverAddress: string, protected readonly options: ClientConnectionOptions) {
     this.serverAddress = serverAddress
@@ -23,44 +24,61 @@ export class Client {
     this.port = +port
   }
 
-  async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<Record<string, any>> {
-    const transactionId = this.getTransactionId()
+  connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const sock = net.createConnection({
         port: this.port,
         host: this.hostname,
         timeout: this.options.timeout,
         noDelay: true,
+        keepAlive: true,
       }, () => {
         if (this.options.log) {
-          console.info(`Connected to ${this.serverAddress}. Sending request for ${handlerName}`)
+          console.info(`Connected to ${this.serverAddress}`)
         }
-        const socket = new Socket(sock, false)
-        socket.sendTransaction({ transactionId, data, handlerName, params })
-        socket.once('timeout', () => {
-          reject(new Error('Socket timeout'))
-          socket.rawSocket.destroy()
-        })
+        this.socket = sock
+        resolve()
+      })
 
-        const response = {} as Record<string, any>
+      sock.on('error', (err) => {
+        reject(err)
+      })
+    })
+  }
 
-        socket.on('data', (d) => {
-          response[d.key] = d.data
-        })
+  async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<Record<string, any>> {
+    const transactionId = this.getTransactionId()
+    return new Promise(async (resolve, reject) => {
+      if (!this.socket?.readable || !this.socket?.writable) {
+        await this.connect()
+      } else {
+        this.socket.resume()
+      }
 
-        socket.on('end', () => {
-          resolve(response)
-        })
+      const socket = new Socket(this.socket!, false)
+      socket.sendTransaction({ transactionId, data, handlerName, params })
 
-        socket.on('error', (err) => {
-          reject(err)
-        })
+      const response = {} as Record<string, any>
 
+      socket.on('data', (d) => {
+        response[d.key] = d.data
+      })
+
+      socket.once('end', () => {
+        resolve(response)
+      })
+
+      socket.once('error', (err) => {
+        if (err.message.includes('ECONNRESET')) {
+          socket.reset()
+          return this.send(handlerName, data, params)
+        }
+        reject(err)
       })
     })
   }
 
   protected getTransactionId(): string {
-    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+    return Math.random().toString(36).substring(2, 6) + Math.random().toString(36).substring(2, 6)
   }
 }

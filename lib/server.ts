@@ -13,13 +13,16 @@ export class Server extends EventEmitter {
       noDelay: true,
     })
     this.server.on('connection', (_sock) => {
+      console.info('Client connected')
       const socket = new Socket(_sock, true)
       socket.on('request', (request: SocketRequestData) => {
         this.emit(request.handlerName, request)
       })
-      socket.on('timeout', () => {
-        socket.rawSocket.destroy(new Error('Socket timeout'))
-      })
+      // socket.on('timeout', () => {
+      //   socket.rawSocket.destroy(new Error('Socket timeout'))
+      // })
+
+      socket.on('end', () => console.info('Client connection ended'))
 
       socket.on('error', (err) => {
         console.error(err)
@@ -41,9 +44,7 @@ export class Server extends EventEmitter {
           }
         }
 
-        process.nextTick(() => {
-          socket.done()
-        })
+        await socket.done()
       } catch (err: any) {
         console.error(err)
         await socket.send({ isError: true, stack: err.stack, ...err })

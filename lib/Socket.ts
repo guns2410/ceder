@@ -22,9 +22,15 @@ export class Socket extends EventEmitter {
     this.socket.on('end', () => {
       this.emit('end')
     })
-    this.socket.setTimeout(this.socket.timeout || 30_000, () => {
-      this.emit('timeout')
-    })
+  }
+
+  reset() {
+    this.bufferedByes = 0
+    this.parsedData = []
+    this.unparsedData = {}
+    this.state = 'CONTENT_TYPE'
+    this.queue = []
+    this.processData = false
   }
 
   get rawSocket() {
@@ -36,7 +42,12 @@ export class Socket extends EventEmitter {
   }
 
   public sendTransaction(data: Omit<SocketRequestData, 'socket'>) {
-    this.socket.write(JSON.stringify(data))
+    this.socket.write(JSON.stringify(data), (err) => {
+      if (err) {
+        console.error(err)
+        this.emit('error', err)
+      }
+    })
   }
 
   public async sendStream(key: string, data: PassThrough) {
@@ -65,9 +76,8 @@ export class Socket extends EventEmitter {
     }
   }
 
-  done(data: any) {
-    if (data) this.socket.end(data)
-    else this.socket.end()
+  async done() {
+    await this.sendData(1, { key: '$$__END__$$', type: 'data' })
   }
 
   private onError(err: Error) {
@@ -138,7 +148,12 @@ export class Socket extends EventEmitter {
 
 
             let key = data?.key
-            this.emit('data', { key, data: actualData })
+            if (key === '$$__END__$$' && actualData === 1) {
+              this.emit('end')
+              return
+            } else {
+              this.emit('data', { key, data: actualData })
+            }
           }
           this.state = 'CONTENT_TYPE'
           break
@@ -282,9 +297,9 @@ export class Socket extends EventEmitter {
           .on('data', (chunk: any) => {
             this.socket.write(chunk)
           })
-          .on('end', () => this.socket.write(`__end_${headers.key}`))
-          .on('error', (err: any) => reject(err))
-          .on('close', () => resolve(null))
+          .once('end', () => this.socket.write(`__end_${headers.key}`))
+          .once('error', (err: any) => reject(err))
+          .once('close', () => resolve(null))
       })
     } else {
       this.socket.write(dataToSend)
