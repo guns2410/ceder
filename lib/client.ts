@@ -49,6 +49,7 @@ export class Client {
         host: this.hostname,
         timeout: this.options.timeout,
         noDelay: true,
+        allowHalfOpen: true,
         keepAlive: true,
       }, () => {
         if (this.options.log) {
@@ -66,7 +67,6 @@ export class Client {
   }
 
   async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<Record<string, any>> {
-    await this.pool.ready()
     const transactionId = this.getTransactionId()
     return new Promise(async (resolve, reject) => {
       const socket = await this.pool.acquire()
