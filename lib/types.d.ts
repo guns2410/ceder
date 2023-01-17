@@ -1,4 +1,5 @@
 import { TransformOptions } from 'node:stream'
+import { Options as PoolOptions } from 'generic-pool'
 import { Socket } from './Socket'
 
 export type HandlerOptions = {
@@ -16,6 +17,7 @@ export interface SocketRequestData {
 export type ClientConnectionOptions = {
   timeout?: number
   log?: boolean
+  pool?: PoolOptions
 }
 
 export interface PassThroughOptions extends TransformOptions {
