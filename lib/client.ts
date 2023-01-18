@@ -25,8 +25,9 @@ export class Client {
     this.port = +port
 
     this.pool = createPool({
-      create: async () => {
-        return await this.createSocketConnection()
+      create: () => {
+        console.log('Creating new socket connection')
+        return this.createSocketConnection()
       },
       validate: async (client: Socket): Promise<boolean>  => {
         return client.rawSocket.readable && client.rawSocket.writable
@@ -39,15 +40,17 @@ export class Client {
       testOnBorrow: true,
       testOnReturn: true,
       autostart: true,
+      numTestsPerEvictionRun: 3,
+      acquireTimeoutMillis: this.options.timeout || 30_000,
     })
   }
 
-  createSocketConnection(): Promise<Socket> {
+  private createSocketConnection(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const sock = net.createConnection({
         port: this.port,
         host: this.hostname,
-        timeout: this.options.timeout,
+        timeout: this.options.timeout || 30_000,
         noDelay: true,
         allowHalfOpen: true,
         keepAlive: true,
@@ -60,7 +63,12 @@ export class Client {
         resolve(socket)
       })
 
+      sock.setTimeout(this.options.timeout || 30_000)
+
       sock.on('error', (err) => {
+        if (this.options.log) {
+          console.error(`Error connecting to ${this.serverAddress}`, err)
+        }
         reject(err)
       })
     })
@@ -69,8 +77,9 @@ export class Client {
   async send<Data = unknown, Params = unknown>(handlerName: string, data: any, params: any): Promise<Record<string, any>> {
     const transactionId = this.getTransactionId()
     return new Promise(async (resolve, reject) => {
-      const socket = await this.pool.acquire()
-      socket.sendTransaction({ transactionId, data, handlerName, params })
+      const socket = await this.pool.acquire().catch(err => reject(err))
+      if (!socket) return
+      await socket.sendTransaction({ transactionId, data, handlerName, params })
 
       const response = {} as Record<string, any>
 

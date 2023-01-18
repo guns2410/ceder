@@ -54,8 +54,17 @@ export class Server extends EventEmitter {
     })
   }
 
-  listen(port: number, hostname = 'localhost', callback?: () => void) {
-    this.server.listen(port, hostname, callback)
+  async listen(port: number, hostname = 'localhost', callback?: () => void) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.server.listen(port, hostname, () => {
+          if (callback) callback()
+          resolve(this)
+        })
+      } catch (err) {
+        reject(err)
+      }
+    })
   }
 
   stop(callback?: () => void) {
