@@ -22,6 +22,9 @@ export class Socket extends EventEmitter {
     this.socket.on('end', () => {
       this.emit('end')
     })
+    this.socket.on('drain', () => {
+      this.socket.resume()
+    })
   }
 
   reset() {
@@ -38,16 +41,18 @@ export class Socket extends EventEmitter {
   }
 
   public rawWrite(data: any) {
-    this.socket.write(data)
+    return this.write(data)
   }
 
-  public sendTransaction(data: Omit<SocketRequestData, 'socket'>) {
-    this.socket.write(JSON.stringify(data), (err) => {
-      if (err) {
-        console.error(err)
-        this.emit('error', err)
-      }
-    })
+  private write(data: any) {
+    const written = this.socket.write(data)
+    if (!written) {
+      this.socket.pause()
+    }
+  }
+
+  public async sendTransaction(data: Omit<SocketRequestData, 'socket'>) {
+    this.write(JSON.stringify(data))
   }
 
   public async sendStream(key: string, data: PassThrough) {
@@ -231,8 +236,9 @@ export class Socket extends EventEmitter {
       this.socket.end('pong')
     }
 
-    if (this.isValidRequest(data)) {
-      const request = JSON.parse(data.toString()) as SocketRequestData
+    const requestData = this.isValidRequest(incomingData)
+    if (requestData) {
+      const request = requestData
       request.socket = this
       this.emit('request', request)
     } else {
@@ -240,11 +246,10 @@ export class Socket extends EventEmitter {
     }
   }
 
-  private isValidRequest(data?: Buffer): data is Buffer {
+  private isValidRequest(data?: Buffer): SocketRequestData | false {
     if (!data) return false
     try {
-      const incomingData = JSON.parse(data.toString())
-      return Boolean(incomingData.handlerName)
+      return JSON.parse(data.toString())
     } catch (err) {
       return false
     }
@@ -282,10 +287,10 @@ export class Socket extends EventEmitter {
         contentType.writeUInt16BE(0, 0)
     }
 
-    this.socket.write(contentType)
-    this.socket.write(keyLength)
-    this.socket.write(key)
-    this.socket.write(dataLength)
+    this.write(contentType)
+    this.write(keyLength)
+    this.write(key)
+    this.write(dataLength)
     if (this.isStream(dataToSend)) {
       const passThrough = new Readable({
         highWaterMark: 128, read() {
@@ -295,14 +300,14 @@ export class Socket extends EventEmitter {
       await new Promise((resolve, reject) => {
         passThrough
           .on('data', (chunk: any) => {
-            this.socket.write(chunk)
+            this.write(chunk)
           })
-          .once('end', () => this.socket.write(`__end_${headers.key}`))
+          .once('end', () => this.write(`__end_${headers.key}`))
           .once('error', (err: any) => reject(err))
           .once('close', () => resolve(null))
       })
     } else {
-      this.socket.write(dataToSend)
+      this.write(dataToSend)
     }
   }
 
